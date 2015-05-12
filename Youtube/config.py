@@ -1,4 +1,5 @@
-###
+"""
+# Copyright (c) 2015, Tobias Rosenqvist
 # Copyright (c) 2013, Sergio Conde
 # All rights reserved.
 #
@@ -26,7 +27,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-###
+"""
 
 import supybot.conf as conf
 import supybot.registry as registry
@@ -38,42 +39,72 @@ except:
 
 
 def configure(advanced):
+    """Configures the plugin by asking questions."""
     from supybot.questions import yn
     conf.registerPlugin('Youtube', True)
-    if not yn(_("""This plugin offers a snarfer that will try to fetch info about
-             Youtube videos that it sees in the channel. Would you like this
-             snarfer to be enabled?"""), default=True):
+    if not yn(_("""This plugin offers a snarfer that will try to fetch
+                   info about Youtube videos that it sees in the channel.
+                   Would you like this snarfer to be enabled?
+                   IMPORTANT:
+                   You also need to edit plugin.py and enter your Google
+                   Developers YouTube Data API key which you can obtain by
+                   following the instructions on the following url before
+                   the plugin will work correctly:
+                   https://developers.google.com/youtube/v3/getting-started
+                """), default=True):
         Youtube.youtubeSnarfer.setValue(False)
 
-    if not yn(_("""Do you want to show the video uploader username?"""),
+    if not yn(_("""Do you want to show the number of views?"""),
               default=True):
-        Youtube.showUploader.setValue(False)
+        Youtube.showViews.setValue(False)
 
-    if not yn(_("""Do you want to show the video upload date?"""),
+    if not yn(_("""Do you want to show the duration?"""),
               default=True):
-        Youtube.showDate.setValue(False)
+        Youtube.showDuration.setValue(False)
 
-    if yn(_("""Do you want to use the old rating system (x of 5.0) instead
-    of the like/dislike system?"""),
-          default=False):
+    if not yn(_("""Do you want to show likes/dislikes?"""),
+              default=True):
+        Youtube.showLikes.setValue(False)
+
+    if yn(_("""Do you want to show the channel name?"""),
+              default=False):
+        Youtube.showChannel.setValue(True)
+
+    if yn(_("""Do you want to show the video publish date?"""),
+              default=False):
         Youtube.showDate.setValue(True)
+
+    if yn(_("""Do you want the bot to prefix its reply with the nickname
+               that posted the video URL?
+            """), default=False):
+        Youtube.prefixNick.setValue(True)
 
 Youtube = conf.registerPlugin('Youtube')
 
 conf.registerChannelValue(Youtube, 'youtubeSnarfer',
-                          registry.Boolean(True,
-                                           _("""Enable Youtube snarfer.""")))
+    registry.Boolean(True, _("""Enable the Youtube snarfer.""")))
 
-conf.registerChannelValue(Youtube, 'showUploader',
-                          registry.Boolean(True,
-                                           _("""Show video uploader.""")))
+conf.registerChannelValue(Youtube, 'showViews',
+    registry.Boolean(True, _("""Show the number of views.""")))
+
+conf.registerChannelValue(Youtube, 'showDuration',
+    registry.Boolean(True, _("""Show the duration.""")))
+
+conf.registerChannelValue(Youtube, 'showLikes',
+    registry.Boolean(True, _("""Show likes/dislikes.""")))
+
+conf.registerChannelValue(Youtube, 'showChannel',
+    registry.Boolean(False, _("""Show the video channel.""")))
 
 conf.registerChannelValue(Youtube, 'showDate',
-                          registry.Boolean(True,
-                                           _("""Show video upload date.""")))
+    registry.Boolean(False, _("""Show the video publish date.""")))
 
-conf.registerChannelValue(Youtube, 'useRating',
-                          registry.Boolean(False, _("""Use old rating system (x of 5.0) instead of
-                          the like/dislike system.""")))
+conf.registerChannelValue(Youtube, 'prefixNick',
+    registry.Boolean(False, _("""Prefix the reply with nickname.""")))
+
+conf.registerChannelValue(Youtube, 'separator',
+    registry.String('-', _("""The character or string separating
+                              the data.""")))
+
 
 # vim:set shiftwidth=4 tabstop=4 expandtab textwidth=79:

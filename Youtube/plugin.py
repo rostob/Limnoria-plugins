@@ -1,4 +1,5 @@
-###
+"""
+# Copyright (c) 2015, Tobias Rosenqvist
 # Copyright (c) 2013, Sergio Conde
 # All rights reserved.
 #
@@ -26,24 +27,43 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-###
+"""
 
 import sys
-import json
-from datetime import timedelta
-from dateutil import parser, tz
+import requests
+from isodate import parse_duration
+if sys.version_info[0] < 3:
+    from urlparse import urlparse, parse_qs
+else:
+    from urllib.parse import urlparse, parse_qs
 
 import supybot.log as log
 import supybot.utils as utils
-from supybot.commands import *
 import supybot.callbacks as callbacks
+from supybot.commands import urlSnarfer
 
-if sys.version_info[0] < 3:
-    from urlparse import urlparse, parse_qs
-    from urllib2 import urlopen
-else:
-    from urllib.parse import urlparse, parse_qs
-    from urllib.request import urlopen
+
+def youtubeId(value):
+    """Parses a string containing a YouTube URL
+
+    Returns:
+    a string containing a YouTube video ID
+    """
+    query = urlparse(value)
+    yid = None
+    if query.hostname == 'youtu.be':
+        yid = query.path[1:]
+    elif query.hostname in ('www.youtube.com', 'youtube.com'):
+        if query.path == '/watch':
+            yid = parse_qs(query.query)['v'][0]
+        elif query.path[:7] == '/embed/' or query.path[:3] == '/v/':
+            yid = query.path.split('/')[2]
+        elif query.hostname == 'm.youtube.com' and query.path == '/watch':
+            yid = parse_qs(query.query)['v'][0]
+        elif (query.hostname == 'youtube.googleapis.com' and
+              query.path[:3] == '/v/'):
+            yid = query.path.split('/')[2]
+    return yid
 
 try:
     from supybot.i18n import PluginInternationalization
@@ -60,89 +80,91 @@ class Youtube(callbacks.PluginRegexp):
     threaded = True
     regexps = ['youtubeSnarfer']
 
-    _apiUrl = 'http://gdata.youtube.com/feeds/api/videos/{}?v=2&alt=jsonc'
+    """Google Developers YouTube Data API-key
+    Obtain a key by following the instructions on:
+    https://developers.google.com/youtube/v3/getting-started
+    """
+    apiKey = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
-    def _youtubeId(self, value):
-        query = urlparse(value)
-        yid = None
-        if query.hostname == 'youtu.be':
-            yid = query.path[1:]
-        elif query.hostname in ('www.youtube.com', 'youtube.com'):
-            if query.path == '/watch':
-                yid = parse_qs(query.query)['v'][0]
-            elif (query.path[:7] == '/embed/'
-                  or query.path[:3] == '/v/'):
-                yid = query.path.split('/')[2]
-        elif (query.hostname == 'm.youtube.com'
-              and query.path == '/watch'):
-            yid = parse_qs(query.query)['v'][0]
-        elif (query.hostname == 'youtube.googleapis.com'
-              and query.path[:3] == '/v/'):
-            yid = query.path.split('/')[2]
-        return yid
+    _apiUrl = ''.join([
+            'https://www.googleapis.com/youtube/v3/videos?part=',
+            'snippet', '%2C',
+            'contentDetails', '%2C',
+            'statistics',
+            '&id={}&key=', apiKey])
+
+    if apiKey == 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx':
+        log.error('No API key configured in Youtube plugin.py')
 
     def youtubeSnarfer(self, irc, msg, match):
+        """Fetches data from the YouTube Data API."""
         channel = msg.args[0]
         if not irc.isChannel(channel):
             return
         if self.registryValue('youtubeSnarfer', channel):
-            ytid = self._youtubeId(match.group(0))
+            ytid = youtubeId(match.group(0))
             if ytid:
                 try:
-                    apiReq = urlopen(self._apiUrl.format(ytid))
-                except:
-                    log.error("Couldn't connect to Youtube's API.")
-                    apiReq = None
+                    api_request = requests.get(self._apiUrl.format(ytid))
+                except requests.exceptions.ConnectionError as exc:
+                    log.error(''.join([
+                                "Couldn't connect to Youtube's API: ",
+                                exc]))
+                    api_request = None
 
-                if apiReq:
-                    if sys.version_info[0] < 3:
-                        apiRes = apiReq.read()
-                    else:
-                        cntCharset = apiReq.headers.get_content_charset()
-                        apiRes = apiReq.read().decode(cntCharset)
+                if api_request and '<Response [200]>' in str(api_request):
+                    api_result = api_request.json()
+                    separator = self.registryValue('separator', channel)
 
-                    apiRes = json.loads(apiRes)
+                    if 'snippet' in api_result["items"][0]:
+                        video_info = api_result["items"][0]
 
-                    if 'data' in apiRes:
-                        vInfo = apiRes['data']
+                        line = format("\x02YouTube\x02: %s",
+                                      video_info['snippet']['title'])
 
-                        s = format("\x02YouTube\x02: %s", vInfo['title'])
+                        if 'contentRating' in video_info['contentDetails']:
+                            line += " \x02[NSFW]\x02"
 
-                        if 'contentRating' in vInfo:
-                            s += " \x02[NSFW]\x02"
+                        if self.registryValue('showDuration', channel):
+                            line += format(" %s %s",
+                                           separator,
+                                           str(
+                                    parse_duration(video_info[
+                                            'contentDetails']['duration'])))
 
-                        if 'duration' in vInfo:
-                            s += format(" - %s", str(timedelta(
-                                seconds=int(vInfo['duration']))))
+                        if self.registryValue('showViews', channel):
+                            line += format(" %s %s views",
+                                           separator,
+                                           video_info[
+                                    'statistics']['viewCount'])
 
-                        if 'viewCount' in vInfo:
-                            s += format(_(" - %s views"),
-                                        "{:,}".format(vInfo['viewCount']))
+                        if self.registryValue('showLikes', channel):
+                            line += format(" %s %s likes / %s dislikes",
+                                           separator,
+                                           video_info[
+                                    'statistics']['likeCount'],
+                                           video_info[
+                                    'statistics']['dislikeCount'])
 
-                        if not self.registryValue('useRating', channel):
-                            if 'likeCount' in vInfo and 'ratingCount' in vInfo:
-                                s += format(_(" - %s likes / %s dislikes"),
-                                            vInfo['likeCount'],
-                                            (int(vInfo['ratingCount']) -
-                                             int(vInfo['likeCount'])))
+                        if self.registryValue('showChannel', channel):
+                            line += format(" %s channel: %s",
+                                           separator,
+                                           video_info[
+                                    'snippet']['channelTitle'])
+
+                        if self.registryValue('showDate', channel):
+                            line += format(" %s published: %s",
+                                           separator,
+                                           video_info[
+                                    'snippet']['publishedAt'])
+
+                        if not self.registryValue('prefixNick', channel):
+                            irc.reply(line, prefixNick=False)
                         else:
-                            if 'rating' in vInfo:
-                                s += format(_(" - %.1f/5.0 (%s ratings)"),
-                                            vInfo['rating'],
-                                            vInfo['ratingCount'])
-
-                        if ('uploader' in vInfo
-                            and self.registryValue('showUploader', channel)):
-                            s += format(_(" - user: %s"),
-                                        vInfo['uploader'])
-
-                        if ('uploaded' in vInfo
-                            and self.registryValue('showDate', channel)):
-                            s += format(_(" - date: %s"),
-                                        parser.parse(vInfo['uploaded'])
-                                        .astimezone(tz.tzlocal()))
-
-                        irc.reply(s, prefixNick=False)
+                            irc.reply(line)
+                else:
+                    log.error(''.join(["Got ", str(api_request),
+                                       " from the YouTube Data API"]))
 
     youtubeSnarfer = urlSnarfer(youtubeSnarfer)
     youtubeSnarfer.__doc__ = utils.web._httpUrlRe
