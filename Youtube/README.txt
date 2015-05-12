@@ -29,8 +29,11 @@ Config:
         supybot.plugins.Youtube.showChannel (default: False)
 		Show video channel ( - channel: Some Channel).
 
-        supybot.plugins.Youtube.showDate (default: False) ->
+        supybot.plugins.Youtube.showDate (default: False)
 		Show publish date ( - published: 2011-09-03 07:23:54+02:00).
+
+        supybot.plugins.Youtube.prefixNick (default: False)
+		Prefix the reply with nickname or not
 
         The following is "hidden", not asked about by the configurator:
         supybot.plugins.Youtube.separator (default: '-')
